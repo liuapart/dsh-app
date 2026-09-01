@@ -83,6 +83,31 @@ class MainActivity : AppCompatActivity() {
             "new MutationObserver(function(){var c=document.body.children.length;if(c!==lastCount||hiddenEl){lastCount=c;sweep();}}).observe(document.body,{childList:true,subtree:true});" +
             "}catch(e){}setInterval(sweep,1200);}" +
             "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',init);}else{init();}})();"
+
+        /** 侧边栏头部右缘的版本角标（__VER__ 由 BuildConfig.VERSION_NAME 注入替换）。
+         *  绝对定位不占布局宽度；SPA 重渲染由 2s 自愈重挂 */
+        const val VERSION_JS =
+            "(function(){var V='__VER__';" +
+            "function f(){try{" +
+            "if(document.getElementById('dsh-shell-ver'))return;" +
+            "var cands=document.querySelectorAll('*');" +
+            "for(var i=0;i<cands.length;i++){var el=cands[i];" +
+            "if(el.children.length>0)continue;" +
+            "if((el.textContent||'').trim()!=='HARNESS')continue;" +
+            "var row=el.parentElement,found=null;" +
+            "for(var k=0;k<5&&row;k++){" +
+            "if((row.textContent||'').toLowerCase().indexOf('deepseek')>=0){found=row;break;}" +
+            "row=row.parentElement;}" +
+            "if(!found)continue;" +
+            "var st=getComputedStyle(found);" +
+            "if(st.position==='static')found.style.position='relative';" +
+            "var b=document.createElement('span');b.id='dsh-shell-ver';b.textContent='v'+V;" +
+            "b.style.cssText='position:absolute;right:14px;top:50%;transform:translateY(-50%);" +
+            "font-size:10px;line-height:1;letter-spacing:.4px;opacity:.75;pointer-events:none;" +
+            "color:var(--dsw-alias-label-dimmed,#8a8a8e);';" +
+            "found.appendChild(b);return;}}catch(e){}}" +
+            "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',f);}else{f();}" +
+            "setInterval(f,2000);})();"
     }
 
     private lateinit var auth: AuthStore
@@ -151,7 +176,9 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             setOf("https://$BASE_HOST")
         }
-        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + COMPACT_JS + DIALOG_JS, originRules)
+        // 版本角标：把壳版本号写入注入脚本（编译期常量替换，不经页面接口）
+        val versionJs = VERSION_JS.replace("__VER__", BuildConfig.VERSION_NAME)
+        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + COMPACT_JS + DIALOG_JS + versionJs, originRules)
 
         // 页面触发的下载（Session log 等，多为 blob: 链接且需认证态）：
         // DownloadManager 无法携带 WebView 的认证/内存 blob，改用页面上下文 fetch → 桥接落盘
