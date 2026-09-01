@@ -36,12 +36,12 @@ jobs:
         run: |
           mkdir -p ~/.android
           echo "$KEYSTORE_BASE64" | base64 -d > ~/.android/dsh-shell-release.keystore
-          cat > keystore.properties <<EOF
-          storeFile=$HOME/.android/dsh-shell-release.keystore
-          storePassword=$KEYSTORE_PASSWORD
-          keyAlias=$KEY_ALIAS
-          keyPassword=$KEY_PASSWORD
-          EOF
+          # heredoc 缩进会被 Properties 当续行解析，改用 printf 逐行写入
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$HOME/.android/dsh-shell-release.keystore" \
+            "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
+          # 自检：4 行齐全且不含缩进污染，否则直接失败给出明确信号
+          grep -c '=' keystore.properties | grep -qx '4' || { echo "::error::keystore.properties 写入异常"; exit 1; }
 
       - name: Build release APK
         env:
