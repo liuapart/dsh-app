@@ -42,6 +42,10 @@ jobs:
             "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
           # 自检：4 行齐全且不含缩进污染，否则直接失败给出明确信号
           grep -c '=' keystore.properties | grep -qx '4' || { echo "::error::keystore.properties 写入异常"; exit 1; }
+          # 密码自检：在 gradle 之前验证 keystore+密码匹配（否则报错晚且难懂）
+          keytool -list -keystore ~/.android/dsh-shell-release.keystore -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1 \
+            || { echo "::error::KEYSTORE_PASSWORD 与 KEYSTORE_BASE64 不匹配"; exit 1; }
+          echo "keystore sha256: $(sha256sum ~/.android/dsh-shell-release.keystore | cut -d' ' -f1)"
 
       - name: Build release APK
         env:
