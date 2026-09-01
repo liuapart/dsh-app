@@ -106,8 +106,7 @@ class MainActivity : AppCompatActivity() {
             "if(st.position==='static')found.style.position='relative';" +
             "var b=document.createElement('span');b.id='dsh-shell-ver';b.textContent='v'+V;" +
             "b.style.cssText='position:absolute;right:16px;top:50%;transform:translateY(-50%);" +
-            "font-size:10px;line-height:1;letter-spacing:.4px;opacity:.7;pointer-events:none;" +
-            "color:var(--dsw-alias-label-dimmed,#8a8a8e);';" +
+            "font-size:10px;line-height:1;letter-spacing:.4px;opacity:.6;pointer-events:none;color:inherit;';" +
             "found.appendChild(b);return;}}catch(e){}}" +
             "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',f);}else{f();}" +
             "setInterval(f,2000);})();"
