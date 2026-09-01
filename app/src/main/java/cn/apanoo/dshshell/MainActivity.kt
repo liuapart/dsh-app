@@ -44,6 +44,15 @@ class MainActivity : AppCompatActivity() {
             "if(!AbortSignal.any){AbortSignal.any=function(sigs){var c=new AbortController();" +
             "sigs.forEach(function(s){if(s.aborted)c.abort();else s.addEventListener('abort',function(){c.abort();});});" +
             "return c.signal;};}}"
+
+        /** 窄屏时 Session log 按钮只留下载图标（官方按钮类名是 CSS Module 哈希，按 span 文字匹配更稳） */
+        const val COMPACT_JS =
+            "(function(){function f(){try{var narrow=window.innerWidth<620;" +
+            "var btns=document.querySelectorAll('button');" +
+            "for(var i=0;i<btns.length;i++){var sp=btns[i].querySelector('span');" +
+            "if(sp&&sp.textContent.trim()==='Session log'){sp.style.display=narrow?'none':'';}}}catch(e){}}" +
+            "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',f);}else{f();}" +
+            "window.addEventListener('resize',f);setInterval(f,2000);})();"
     }
 
     private lateinit var auth: AuthStore
@@ -112,7 +121,23 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             setOf("https://$BASE_HOST")
         }
-        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS, originRules)
+        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + COMPACT_JS, originRules)
+
+        // 页面触发的下载（Session log 等，多为 blob: 链接且需认证态）：
+        // DownloadManager 无法携带 WebView 的认证/内存 blob，改用页面上下文 fetch → 桥接落盘
+        webView.addJavascriptInterface(DownloadBridge(), "DshDownload")
+        webView.setDownloadListener { url, _, contentDisposition, _, _ ->
+            val name = Regex("filename\\*?=?\\s*\"?([^\";]+)\"?").find(contentDisposition ?: "")
+                ?.groupValues?.get(1)?.trim()
+                ?: url.substringAfterLast('/').substringBefore('?').ifEmpty { "dsh-download" }
+            val js = "(function(u,n){(async function(){try{var r=await fetch(u,{credentials:'include'});" +
+                "if(!r.ok)throw new Error('HTTP '+r.status);" +
+                "var b=await r.arrayBuffer();var u8=new Uint8Array(b);var bin='';var CH=0x8000;" +
+                "for(var i=0;i<u8.length;i+=CH){bin+=String.fromCharCode.apply(null,u8.subarray(i,i+CH));}" +
+                "DshDownload.save(n,btoa(bin));}catch(e){try{DshDownload.fail(String(e));}catch(x){}}})(" +
+                org.json.JSONObject.quote(url) + "," + org.json.JSONObject.quote(name) + ");})"
+            webView.evaluateJavascript(js, null)
+        }
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -232,6 +257,47 @@ class MainActivity : AppCompatActivity() {
         fun post(color: String?) {
             runOnUiThread { if (!color.isNullOrEmpty()) applyStatusBar(color) }
         }
+    }
+
+    /** 页面下载落盘：接收 JS fetch 转 base64 的文件数据，写入系统"下载"目录 */
+    inner class DownloadBridge {
+        @JavascriptInterface
+        fun save(name: String?, base64: String?) {
+            val data = try {
+                android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+            } catch (e: Exception) { null }
+            if (data == null) { toast("下载失败：数据解码错误"); return }
+            val safe = (name ?: "dsh-download").replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            val saved = try {
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    val cv = android.content.ContentValues().apply {
+                        put(android.provider.MediaStore.Downloads.DISPLAY_NAME, safe)
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                        put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
+                    }
+                    val resolver = contentResolver
+                    val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)!!
+                    resolver.openOutputStream(uri)!!.use { it.write(data) }
+                    cv.clear(); cv.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
+                    resolver.update(uri, cv, null, null)
+                    "系统下载目录/$safe"
+                } else {
+                    val f = java.io.File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), safe)
+                    f.writeBytes(data)
+                    f.absolutePath
+                }
+            } catch (e: Exception) { null }
+            toast(if (saved != null) "已保存：$saved" else "保存失败")
+        }
+
+        @JavascriptInterface
+        fun fail(msg: String?) {
+            toast("下载失败：${msg ?: "未知错误"}")
+        }
+    }
+
+    private fun toast(msg: String) = runOnUiThread {
+        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show()
     }
 
     private fun applyStatusBar(colorHex: String) {
