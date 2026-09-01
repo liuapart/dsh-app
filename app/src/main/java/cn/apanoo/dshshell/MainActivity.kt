@@ -21,6 +21,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import androidx.webkit.WebViewCompat
 
 class MainActivity : AppCompatActivity() {
 
@@ -33,6 +34,15 @@ class MainActivity : AppCompatActivity() {
 
         /** 页面上报主题色之前的兜底值（与 PWA manifest 的 theme_color 一致） */
         const val FALLBACK_THEME = "#151517"
+
+        /** 旧 WebView 的 AbortSignal 新静态方法 polyfill（文档启动前注入） */
+        const val POLYFILL_JS =
+            "if(window.AbortSignal){" +
+            "if(!AbortSignal.timeout){AbortSignal.timeout=function(ms){var c=new AbortController();" +
+            "setTimeout(function(){c.abort();},ms);return c.signal;};}" +
+            "if(!AbortSignal.any){AbortSignal.any=function(sigs){var c=new AbortController();" +
+            "sigs.forEach(function(s){if(s.aborted)c.abort();else s.addEventListener('abort',function(){c.abort();});});" +
+            "return c.signal;};}}"
     }
 
     private lateinit var auth: AuthStore
@@ -59,6 +69,10 @@ class MainActivity : AppCompatActivity() {
         configureWebView()
         configureSwipe()
         setupBackGesture()
+
+        // 应用内更新：注册下载完成接收器 + 启动检查
+        Updater.registerReceiver(this)
+        Updater.check(this)
 
         if (savedInstanceState != null) webView.restoreState(savedInstanceState)  // 进程回收后原地恢复
         else if (BASE_URL.isNotEmpty()) webView.loadUrl(BASE_URL)
@@ -87,6 +101,11 @@ class MainActivity : AppCompatActivity() {
             javaScriptCanOpenWindowsAutomatically = true
         }
         webView.addJavascriptInterface(ThemeBridge(), "DshTheme")
+
+        // 文档启动前注入 polyfill：旧系统 WebView 缺新 API（AbortSignal.timeout/any），
+        // 页面发消息会报 "AbortSignal.timeout is not a function"（v1.1.0 用户反馈）。
+        // addDocumentStartJavaScript 保证先于页面任何脚本执行。
+        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS, setOf("https://$BASE_HOST"))
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -134,6 +153,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun configureSwipe() {
+        // 关闭下拉刷新：聊天页在内部容器滚动，WebView 的 scrollY 恒为 0，
+        // SwipeRefreshLayout 会把"查看历史"的下滑手势误判为刷新（v1.1.0 用户反馈）
+        swipe.isEnabled = false
         swipe.setColorSchemeColors(Color.parseColor(FALLBACK_THEME))
         swipe.setOnRefreshListener { webView.reload() }
     }

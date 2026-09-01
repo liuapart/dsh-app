@@ -25,7 +25,9 @@ WebView 壳：加载 `https://<你的域名>/`，**自动应答 Basic 认证**�
 | 状态栏跟随主题 | 读取页面 `meta[name=theme-color]`（dsh ThemePresenter 动态维护）+ MutationObserver，明暗切换实时变色；图标深浅自动反转 |
 | 断网兜底 | 主帧失败 → 自动降级 `LOAD_CACHE_ELSE_NETWORK` 渲染缓存壳；再失败显示重试层 |
 | 性能 | 渲染进程后台存活（`RENDERER_PRIORITY_IMPORTANT_ALWAYS`）、旋转/暗色切换不重建（manifest configChanges）、`onPause` 暂停页面定时器、进程回收后 `saveState/restoreState` 原地恢复 |
-| 导航 | 返回键 = WebView 后退；下拉刷新；`target=_blank`/站外链接转交系统浏览器 |
+| 导航 | 返回键 = WebView 后退；下拉刷新已停用（聊天页内部滚动会被误判为刷新）；`target=_blank`/站外链接转交系统浏览器 |
+| 兼容 | 文档启动前注入 AbortSignal.timeout/any polyfill（旧系统 WebView 发消息报错）|
+| 应用内更新 | 启动时查 GitHub Release → 弹更新页 → 下载后自动拉起系统安装器（首次需允许"安装未知应用"）|
 | 安全 | 非 HTTPS 内容禁止混合加载；`allowFileAccess/allowContentAccess` 关闭；凭证仅存应用私有目录 |
 
 ## 改站点/换域名
