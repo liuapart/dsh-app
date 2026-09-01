@@ -135,14 +135,21 @@ class MainActivity : AppCompatActivity() {
             val name = Regex("filename\\*?=?\\s*\"?([^\";]+)\"?").find(contentDisposition ?: "")
                 ?.groupValues?.get(1)?.trim()
                 ?: url.substringAfterLast('/').substringBefore('?').ifEmpty { "dsh-download" }
-            toast("开始下载：$name")   // v1.3.2 诊断①：确认 DownloadListener 已触发
-            val js = "(function(u,n){(async function(){try{var r=await fetch(u,{credentials:'include'});" +
-                "if(!r.ok)throw new Error('HTTP '+r.status);" +
-                "var b=await r.arrayBuffer();var u8=new Uint8Array(b);var bin='';var CH=0x8000;" +
-                "for(var i=0;i<u8.length;i+=CH){bin+=String.fromCharCode.apply(null,u8.subarray(i,i+CH));}" +
-                "DshDownload.save(n,btoa(bin));}catch(e){try{DshDownload.fail(String(e));}catch(x){}}})(" +
-                org.json.JSONObject.quote(url) + "," + org.json.JSONObject.quote(name) + ");})"
-            webView.evaluateJavascript(js, null)
+            if (url.startsWith("http")) {
+                // http(s) 下载：转交默认浏览器（有进度条/通知栏/落系统下载；v1.4.0 用户选择）
+                toast("已转交浏览器下载：$name")
+                if (!openExternally(android.net.Uri.parse(url))) toast("未找到可用的浏览器")
+            } else {
+                // blob:/data: 等页面内存资源：浏览器打不开，仍走页面内 fetch 落盘
+                toast("开始下载：$name")
+                val js = "(function(u,n){(async function(){try{var r=await fetch(u,{credentials:'include'});" +
+                    "if(!r.ok)throw new Error('HTTP '+r.status);" +
+                    "var b=await r.arrayBuffer();var u8=new Uint8Array(b);var bin='';var CH=0x8000;" +
+                    "for(var i=0;i<u8.length;i+=CH){bin+=String.fromCharCode.apply(null,u8.subarray(i,i+CH));}" +
+                    "DshDownload.save(n,btoa(bin));}catch(e){try{DshDownload.fail(String(e));}catch(x){}}})(" +
+                    org.json.JSONObject.quote(url) + "," + org.json.JSONObject.quote(name) + ");})"
+                webView.evaluateJavascript(js, null)
+            }
         }
 
         webView.webViewClient = object : WebViewClient() {
