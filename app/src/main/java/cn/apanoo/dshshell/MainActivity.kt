@@ -135,6 +135,7 @@ class MainActivity : AppCompatActivity() {
             val name = Regex("filename\\*?=?\\s*\"?([^\";]+)\"?").find(contentDisposition ?: "")
                 ?.groupValues?.get(1)?.trim()
                 ?: url.substringAfterLast('/').substringBefore('?').ifEmpty { "dsh-download" }
+            toast("开始下载：$name")   // v1.3.2 诊断①：确认 DownloadListener 已触发
             val js = "(function(u,n){(async function(){try{var r=await fetch(u,{credentials:'include'});" +
                 "if(!r.ok)throw new Error('HTTP '+r.status);" +
                 "var b=await r.arrayBuffer();var u8=new Uint8Array(b);var bin='';var CH=0x8000;" +
@@ -181,6 +182,7 @@ class MainActivity : AppCompatActivity() {
         webView.webChromeClient = object : WebChromeClient() {
             // target=_blank：借临时 WebView 捕获目标 URL，交系统浏览器（不把壳带离 dsh）
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
+                toast("外链：转交系统浏览器")   // v1.3.2 诊断③：区分下载 vs 新窗口路径
                 val temp = WebView(view.context)
                 temp.webViewClient = object : WebViewClient() {
                     override fun shouldOverrideUrlLoading(v: WebView, r: WebResourceRequest) = openExternally(r.url)
@@ -264,7 +266,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** 页面下载落盘：接收 JS fetch 转 base64 的文件数据，写入系统"下载"目录 */
+    /** 页面下载落盘：接收 JS fetch 转 base64 的文件数据，写入系统"下载"目录并自动打开 */
     inner class DownloadBridge {
         @JavascriptInterface
         fun save(name: String?, base64: String?) {
@@ -273,11 +275,12 @@ class MainActivity : AppCompatActivity() {
             } catch (e: Exception) { null }
             if (data == null) { toast("下载失败：数据解码错误"); return }
             val safe = (name ?: "dsh-download").replace(Regex("[\\\\/:*?\"<>|]"), "_")
+            var openUri: android.net.Uri? = null
             val saved = try {
                 if (android.os.Build.VERSION.SDK_INT >= 29) {
                     val cv = android.content.ContentValues().apply {
                         put(android.provider.MediaStore.Downloads.DISPLAY_NAME, safe)
-                        put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                        put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/zip")
                         put(android.provider.MediaStore.Downloads.IS_PENDING, 1)
                     }
                     val resolver = contentResolver
@@ -285,6 +288,7 @@ class MainActivity : AppCompatActivity() {
                     resolver.openOutputStream(uri)!!.use { it.write(data) }
                     cv.clear(); cv.put(android.provider.MediaStore.Downloads.IS_PENDING, 0)
                     resolver.update(uri, cv, null, null)
+                    openUri = uri
                     "系统下载目录/$safe"
                 } else {
                     val f = java.io.File(getExternalFilesDir(android.os.Environment.DIRECTORY_DOWNLOADS), safe)
@@ -292,7 +296,19 @@ class MainActivity : AppCompatActivity() {
                     f.absolutePath
                 }
             } catch (e: Exception) { null }
-            toast(if (saved != null) "已保存：$saved" else "保存失败")
+            if (saved == null) { toast("保存失败"); return }
+            toast("已保存：$saved")
+            // 自动打开（文件管理器/解压工具），省去翻目录
+            openUri?.let { u ->
+                try {
+                    startActivity(
+                        Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(u, "application/zip")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                    )
+                } catch (e: Exception) { /* 没有可打开的应用则停留在 Toast 提示 */ }
+            }
         }
 
         @JavascriptInterface
