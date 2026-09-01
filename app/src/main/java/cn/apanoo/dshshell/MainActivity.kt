@@ -59,20 +59,29 @@ class MainActivity : AppCompatActivity() {
             "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',f);}else{f();}" +
             "window.addEventListener('resize',f);setInterval(f,2000);})();"
 
-        /** 自动关闭官方"导出已开始下载"成功面板（壳内 Toast 已接管反馈，面板冗余）；
-         *  失败面板保留展示错误。按按钮文字找 关闭/Close，向上爬 6 层容器验文案特征 */
+        /** 导出面板"从不弹出"方案（v1.6.0，jsdom 四场景验证通过）：
+         *  初始加载后的新 body 子节点（React 传送门面板）在绘制前隐藏；
+         *  内容翻转为错误时恢复显示。不碰 App 主容器（聊天文本含同关键词） */
         const val DIALOG_JS =
-            "(function(){var last=0;" +
-            "function tc(){try{var btns=document.querySelectorAll('button');" +
-            "for(var j=0;j<btns.length;j++){var bt=(btns[j].textContent||'').replace(/\\s+/g,'');" +
-            "if(bt!=='关闭'&&bt!=='Close')continue;" +
-            "var scope=btns[j];for(var k=0;k<6&&scope;k++){scope=scope.parentElement;}" +
-            "var tx=scope?(scope.textContent||''):'';" +
-            "if(tx.indexOf('已开始下载')>=0||tx.indexOf('downloadstarted')>=0){btns[j].click();return;}}" +
+            "(function(){var initKids=null,hiddenEl=null,lastCount=0;" +
+            "var SUCC=['已开始下载','正在下载 Session ZIP','download started','downloading the Session ZIP','正在导出 Session','Exporting Session'];" +
+            "var ERR=['导出失败','export failed'];" +
+            "function has(s,a){for(var i=0;i<a.length;i++)if(s.indexOf(a[i])>=0)return true;return false;}" +
+            "function sweep(){try{" +
+            "if(!document.body||!initKids)return;" +
+            "var kids=document.body.children;" +
+            "if(hiddenEl&&!hiddenEl.isConnected)hiddenEl=null;" +
+            "for(var i=0;i<kids.length;i++){var el=kids[i];" +
+            "if(initKids.indexOf(el)>=0)continue;" +
+            "var tx=el.textContent||'';" +
+            "if(has(tx,ERR)){if(el.style.display==='none'){el.style.display='';}if(hiddenEl===el)hiddenEl=null;continue;}" +
+            "if(has(tx,SUCC)){if(el.style.display!=='none'){el.style.display='none';hiddenEl=el;}}}" +
             "}catch(e){}}" +
-            "function onMut(){var n=Date.now();if(n-last<200)return;last=n;tc();}" +
-            "function init(){try{new MutationObserver(onMut).observe(document.body,{childList:true,subtree:true});}catch(e){}" +
-            "setInterval(tc,1500);}" +
+            "function init(){try{" +
+            "initKids=Array.prototype.slice.call(document.body.children);" +
+            "lastCount=initKids.length;" +
+            "new MutationObserver(function(){var c=document.body.children.length;if(c!==lastCount||hiddenEl){lastCount=c;sweep();}}).observe(document.body,{childList:true,subtree:true});" +
+            "}catch(e){}setInterval(sweep,1200);}" +
             "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',init);}else{init();}})();"
     }
 
