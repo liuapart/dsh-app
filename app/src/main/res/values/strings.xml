@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">dsh</string>
+    <string name="error_title">无法连接 dsh</string>
+    <string name="error_hint">已尝试展示缓存版本；确认网络后重试</string>
+    <string name="retry">重试</string>
+    <string name="auth_user">用户名</string>
+    <string name="auth_pass">密码</string>
+</resources>

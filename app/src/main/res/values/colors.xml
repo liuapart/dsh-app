@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 与 PWA manifest theme_color 一致；页面加载后状态栏色由页面 meta 实时接管 -->
+    <color name="bg">#151517</color>
+    <color name="fg">#E6EDF3</color>
+    <color name="fg_muted">#8B949E</color>
+    <color name="ic_bg">#151517</color>
+</resources>

@@ -1,0 +1,59 @@
+# 打 tag（v*）自动构建正式签名 APK 并创建 GitHub Release
+# 前提：仓库 Secrets 已配置 KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD
+name: Build & Release APK
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # 创建 Release 需要
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # 提供 sdkmanager 并接受许可：AGP 会按需自动补齐 platform-35 / build-tools
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.9'
+
+      - name: Restore release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          mkdir -p ~/.android
+          echo "$KEYSTORE_BASE64" | base64 -d > ~/.android/dsh-shell-release.keystore
+          cat > keystore.properties <<EOF
+          storeFile=$HOME/.android/dsh-shell-release.keystore
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEY_PASSWORD
+          EOF
+
+      - name: Build release APK
+        env:
+          BASE_HOST: ${{ vars.BASE_HOST || secrets.BASE_HOST }}
+          BASE_URL: ${{ vars.BASE_URL || secrets.BASE_URL }}
+        run: gradle assembleRelease
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/release/app-release.apk "dsh-shell-${GITHUB_REF_NAME}.apk"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dsh-shell-*.apk
+          generate_release_notes: true
