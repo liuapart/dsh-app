@@ -20,8 +20,8 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # 提供 sdkmanager 并接受许可：AGP 会按需自动补齐 platform-35 / build-tools
-      - uses: android-actions/setup-android@v3
+      # 注：GitHub 托管 runner 自带完整 Android SDK（licenses 已预接受），
+      # 无需 setup-android——实测该 Action 偶发下载损坏导致构建失败（v1.2.0）
 
       - uses: gradle/actions/setup-gradle@v3
         with:
