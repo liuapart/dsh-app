@@ -1,27 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 终端提示符「>」造型：暗底白卡 + 主题色箭头，108dp 自适应画布（安全区 66dp 内） -->
+<!-- 终端提示符「›_」v1.9.0：整体单色系——暗底 + 同一绿色（光标同色降透明度做层次）。
+     108dp 自适应画布，内容收在 66dp 安全区内（无卡片、无点缀色） -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
+    <!-- › 提示符 -->
     <path
-        android:fillColor="#F6F8FA"
-        android:pathData="M30,34 h48 a6,6 0 0 1 6,6 v28 a6,6 0 0 1 -6,6 h-48 a6,6 0 0 1 -6,-6 v-28 a6,6 0 0 1 6,-6 z" />
-
-    <path
-        android:pathData="M42,48 L52,54 L42,60"
-        android:strokeColor="#151517"
-        android:strokeWidth="5"
+        android:pathData="M40,38 L56,54 L40,70"
+        android:strokeColor="#4ADE80"
+        android:strokeWidth="8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:fillColor="#00000000" />
 
+    <!-- _ 光标（同色 70% 透明度） -->
     <path
-        android:pathData="M56,62 L66,62"
-        android:strokeColor="#BF8700"
-        android:strokeWidth="5"
+        android:pathData="M62,70 L74,70"
+        android:strokeColor="#B34ADE80"
+        android:strokeWidth="8"
         android:strokeLineCap="round"
         android:fillColor="#00000000" />
 </vector>
