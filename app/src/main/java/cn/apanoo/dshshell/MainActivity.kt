@@ -45,12 +45,17 @@ class MainActivity : AppCompatActivity() {
             "sigs.forEach(function(s){if(s.aborted)c.abort();else s.addEventListener('abort',function(){c.abort();});});" +
             "return c.signal;};}}"
 
-        /** 窄屏时 Session log 按钮只留下载图标（官方按钮类名是 CSS Module 哈希，按 span 文字匹配更稳） */
+        /** 窄屏时 Session log 按钮只留下载图标（官方按钮类名是 CSS Module 哈希，按 span 文字匹配更稳）。
+         *  v1.3.1：边框盒子宽度由父布局分配，藏文字不会缩——内联样式强制收缩 + 钉右 */
         const val COMPACT_JS =
             "(function(){function f(){try{var narrow=window.innerWidth<620;" +
             "var btns=document.querySelectorAll('button');" +
-            "for(var i=0;i<btns.length;i++){var sp=btns[i].querySelector('span');" +
-            "if(sp&&sp.textContent.trim()==='Session log'){sp.style.display=narrow?'none':'';}}}catch(e){}}" +
+            "for(var i=0;i<btns.length;i++){var b=btns[i];var sp=b.querySelector('span');" +
+            "if(sp&&sp.textContent.trim()==='Session log'){sp.style.display=narrow?'none':'';" +
+            "if(narrow){b.style.width='auto';b.style.minWidth='0';b.style.flex='0 0 auto';" +
+            "b.style.padding='6px 12px';b.style.marginLeft='auto';b.style.justifyContent='center';}" +
+            "else{b.style.width='';b.style.minWidth='';b.style.flex='';b.style.padding='';" +
+            "b.style.marginLeft='';b.style.justifyContent='';}}}}catch(e){}}" +
             "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',f);}else{f();}" +
             "window.addEventListener('resize',f);setInterval(f,2000);})();"
     }
