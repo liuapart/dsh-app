@@ -135,21 +135,19 @@ class MainActivity : AppCompatActivity() {
             val name = Regex("filename\\*?=?\\s*\"?([^\";]+)\"?").find(contentDisposition ?: "")
                 ?.groupValues?.get(1)?.trim()
                 ?: url.substringAfterLast('/').substringBefore('?').ifEmpty { "dsh-download" }
-            if (url.startsWith("http")) {
-                // http(s) 下载：转交默认浏览器（有进度条/通知栏/落系统下载；v1.4.0 用户选择）
-                toast("已转交浏览器下载：$name")
-                if (!openExternally(android.net.Uri.parse(url))) toast("未找到可用的浏览器")
-            } else {
-                // blob:/data: 等页面内存资源：浏览器打不开，仍走页面内 fetch 落盘
-                toast("开始下载：$name")
-                val js = "(function(u,n){(async function(){try{var r=await fetch(u,{credentials:'include'});" +
-                    "if(!r.ok)throw new Error('HTTP '+r.status);" +
-                    "var b=await r.arrayBuffer();var u8=new Uint8Array(b);var bin='';var CH=0x8000;" +
-                    "for(var i=0;i<u8.length;i+=CH){bin+=String.fromCharCode.apply(null,u8.subarray(i,i+CH));}" +
-                    "DshDownload.save(n,btoa(bin));}catch(e){try{DshDownload.fail(String(e));}catch(x){}}})(" +
-                    org.json.JSONObject.quote(url) + "," + org.json.JSONObject.quote(name) + ");})"
-                webView.evaluateJavascript(js, null)
-            }
+            // 统一壳内下载（v1.5.0）：外部浏览器没有页面会话凭证会被 403。
+            // 流程借鉴成熟 WebView 方案：页面上下文 fetch（自动带同源 Cookie/Basic 认证态）
+            // → base64 过桥 → 原生 MediaStore 落盘；120s 超时防挂起。
+            toast("开始下载：$name")
+            val js = "(async function(u,n){try{" +
+                "var ctrl=new AbortController();var to=setTimeout(function(){ctrl.abort();},120000);" +
+                "var r=await fetch(u,{credentials:'include',signal:ctrl.signal});clearTimeout(to);" +
+                "if(!r.ok)throw new Error('HTTP '+r.status);" +
+                "var b=await r.arrayBuffer();var u8=new Uint8Array(b);var bin='';var CH=0x8000;" +
+                "for(var i=0;i<u8.length;i+=CH){bin+=String.fromCharCode.apply(null,u8.subarray(i,i+CH));}" +
+                "DshDownload.save(n,btoa(bin));}catch(e){try{DshDownload.fail(String((e&&e.name)||e));}catch(x){}}})(" +
+                org.json.JSONObject.quote(url) + "," + org.json.JSONObject.quote(name) + ");"
+            webView.evaluateJavascript(js, null)
         }
 
         webView.webViewClient = object : WebViewClient() {
@@ -320,7 +318,12 @@ class MainActivity : AppCompatActivity() {
 
         @JavascriptInterface
         fun fail(msg: String?) {
-            toast("下载失败：${msg ?: "未知错误"}")
+            val m = when (msg) {
+                "AbortError" -> "下载超时（120s）"
+                "TypeError" -> "网络错误"
+                else -> msg ?: "未知错误"
+            }
+            toast("下载失败：$m")
         }
     }
 
