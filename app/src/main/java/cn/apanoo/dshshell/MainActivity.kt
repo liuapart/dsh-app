@@ -58,6 +58,22 @@ class MainActivity : AppCompatActivity() {
             "b.style.marginLeft='';b.style.justifyContent='';}}}}catch(e){}}" +
             "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',f);}else{f();}" +
             "window.addEventListener('resize',f);setInterval(f,2000);})();"
+
+        /** 自动关闭官方"导出已开始下载"成功面板（壳内 Toast 已接管反馈，面板冗余）；
+         *  失败面板保留展示错误。按按钮文字找 关闭/Close，向上爬 6 层容器验文案特征 */
+        const val DIALOG_JS =
+            "(function(){var last=0;" +
+            "function tc(){try{var btns=document.querySelectorAll('button');" +
+            "for(var j=0;j<btns.length;j++){var bt=(btns[j].textContent||'').replace(/\\s+/g,'');" +
+            "if(bt!=='关闭'&&bt!=='Close')continue;" +
+            "var scope=btns[j];for(var k=0;k<6&&scope;k++){scope=scope.parentElement;}" +
+            "var tx=scope?(scope.textContent||''):'';" +
+            "if(tx.indexOf('已开始下载')>=0||tx.indexOf('downloadstarted')>=0){btns[j].click();return;}}" +
+            "}catch(e){}}" +
+            "function onMut(){var n=Date.now();if(n-last<200)return;last=n;tc();}" +
+            "function init(){try{new MutationObserver(onMut).observe(document.body,{childList:true,subtree:true});}catch(e){}" +
+            "setInterval(tc,1500);}" +
+            "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',init);}else{init();}})();"
     }
 
     private lateinit var auth: AuthStore
@@ -126,7 +142,7 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             setOf("https://$BASE_HOST")
         }
-        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + COMPACT_JS, originRules)
+        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + COMPACT_JS + DIALOG_JS, originRules)
 
         // 页面触发的下载（Session log 等，多为 blob: 链接且需认证态）：
         // DownloadManager 无法携带 WebView 的认证/内存 blob，改用页面上下文 fetch → 桥接落盘
