@@ -37,8 +37,8 @@ android {
         applicationId "cn.apanoo.dshshell"
         minSdk 26          // Android 8.0+：自适应图标/现代 WebView 全覆盖
         targetSdk 34       // 34：保留 statusBarColor 着色语义（35 起 edge-to-edge 强制）
-        versionCode 14
-        versionName "1.7.2"
+        versionCode 15
+        versionName "1.8.0"
         buildConfigField 'String', 'BASE_HOST', "\"$dshHost\""
         buildConfigField 'String', 'BASE_URL', "\"$dshUrl\""
     }

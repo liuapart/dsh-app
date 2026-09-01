@@ -45,19 +45,8 @@ class MainActivity : AppCompatActivity() {
             "sigs.forEach(function(s){if(s.aborted)c.abort();else s.addEventListener('abort',function(){c.abort();});});" +
             "return c.signal;};}}"
 
-        /** 窄屏时 Session log 按钮只留下载图标（官方按钮类名是 CSS Module 哈希，按 span 文字匹配更稳）。
-         *  v1.3.1：边框盒子宽度由父布局分配，藏文字不会缩——内联样式强制收缩 + 钉右 */
-        const val COMPACT_JS =
-            "(function(){function f(){try{var narrow=window.innerWidth<620;" +
-            "var btns=document.querySelectorAll('button');" +
-            "for(var i=0;i<btns.length;i++){var b=btns[i];var sp=b.querySelector('span');" +
-            "if(sp&&sp.textContent.trim()==='Session log'){sp.style.display=narrow?'none':'';" +
-            "if(narrow){b.style.width='auto';b.style.minWidth='0';b.style.flex='0 0 auto';" +
-            "b.style.padding='6px 12px';b.style.marginLeft='auto';b.style.justifyContent='center';}" +
-            "else{b.style.width='';b.style.minWidth='';b.style.flex='';b.style.padding='';" +
-            "b.style.marginLeft='';b.style.justifyContent='';}}}}catch(e){}}" +
-            "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',f);}else{f();}" +
-            "window.addEventListener('resize',f);setInterval(f,2000);})();"
+        // Session log 按钮紧凑化已迁入 dsh-web-kit 插件 v2.2.0（Web/壳双端一致，
+        // 媒体查询驱动），壳内不再重复注入。
 
         /** 导出面板"从不弹出"方案（v1.6.0，jsdom 四场景验证通过）：
          *  初始加载后的新 body 子节点（React 传送门面板）在绘制前隐藏；
@@ -180,7 +169,7 @@ class MainActivity : AppCompatActivity() {
         }
         // 版本角标：把壳版本号写入注入脚本（编译期常量替换，不经页面接口）
         val versionJs = VERSION_JS.replace("__VER__", BuildConfig.VERSION_NAME)
-        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + COMPACT_JS + DIALOG_JS + versionJs, originRules)
+        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + DIALOG_JS + versionJs, originRules)
 
         // 页面触发的下载（Session log 等，多为 blob: 链接且需认证态）：
         // DownloadManager 无法携带 WebView 的认证/内存 blob，改用页面上下文 fetch → 桥接落盘
