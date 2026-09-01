@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:background="@color/bg">
 
-    <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+    <cn.apanoo.dshshell.TopZoneSwipeLayout
         android:id="@+id/swipe"
         android:layout_width="match_parent"
         android:layout_height="match_parent">
@@ -13,7 +13,7 @@
             android:id="@+id/web"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
-    </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+    </cn.apanoo.dshshell.TopZoneSwipeLayout>
 
     <!-- 断网兜底层：缓存壳已渲染时页面数据区自行降级；连壳都没缓存时显示这里 -->
     <LinearLayout

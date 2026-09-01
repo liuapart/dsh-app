@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Message
+import android.view.MotionEvent
 import android.view.View
 import android.webkit.HttpAuthHandler
 import android.webkit.JavascriptInterface
@@ -47,7 +48,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var auth: AuthStore
     private lateinit var webView: WebView
-    private lateinit var swipe: SwipeRefreshLayout
+    private lateinit var swipe: TopZoneSwipeLayout
     private lateinit var errorOverlay: View
 
     /** 断网降级只做一次，避免死循环 */
@@ -105,7 +106,13 @@ class MainActivity : AppCompatActivity() {
         // 文档启动前注入 polyfill：旧系统 WebView 缺新 API（AbortSignal.timeout/any），
         // 页面发消息会报 "AbortSignal.timeout is not a function"（v1.1.0 用户反馈）。
         // addDocumentStartJavaScript 保证先于页面任何脚本执行。
-        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS, setOf("https://$BASE_HOST"))
+        // origin 规则同时给出带/不带端口两种形态（站点是 https://host:8443，规则若不匹配则不会注入）
+        val originRules = try {
+            setOf("https://$BASE_HOST", "https://$BASE_HOST:8443")
+        } catch (e: Exception) {
+            setOf("https://$BASE_HOST")
+        }
+        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS, originRules)
 
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -123,6 +130,9 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView, url: String) {
                 swipe.isRefreshing = false
                 injectThemeObserver()
+                // polyfill 兜底二次注入：即使文档启动注入的 origin 规则未匹配，
+                // 这里也赶在用户点击"发送"之前补上（v1.2.0）
+                view.evaluateJavascript(POLYFILL_JS, null)
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
@@ -153,9 +163,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun configureSwipe() {
-        // 关闭下拉刷新：聊天页在内部容器滚动，WebView 的 scrollY 恒为 0，
-        // SwipeRefreshLayout 会把"查看历史"的下滑手势误判为刷新（v1.1.0 用户反馈）
-        swipe.isEnabled = false
+        // Chrome 式下拉刷新：仅当手势【起点】落在屏幕靠上区域时触发（topZonePx），
+        // 其余区域的手势完全交给页面滚动（v1.1.0 曾全局关闭，v1.2.0 按触点位置放行）
+        swipe.topZonePx = (120 * resources.displayMetrics.density).toInt()
+        swipe.setOnChildScrollUpCallback { _, _ -> false }   // 不再按滚动位置拦截 = 顶部区域随时可强制刷新
         swipe.setColorSchemeColors(Color.parseColor(FALLBACK_THEME))
         swipe.setOnRefreshListener { webView.reload() }
     }
@@ -263,4 +274,24 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() { webView.onPause(); super.onPause() }   // 暂停页面定时器，省电
     override fun onResume() { super.onResume(); webView.onResume() }
+}
+
+/**
+ * 顶部区域下拉刷新布局（Chrome 式）：
+ * 仅当手势起点落在屏幕顶部 topZonePx 范围内才启用下拉刷新；
+ * 其他位置的手势不拦截，完全交给 WebView 页面滚动。
+ */
+class TopZoneSwipeLayout @JvmOverloads constructor(
+    context: android.content.Context,
+    attrs: android.util.AttributeSet? = null
+) : SwipeRefreshLayout(context, attrs) {
+
+    var topZonePx = 0
+
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.action == MotionEvent.ACTION_DOWN && topZonePx > 0 && ev.y > topZonePx) {
+            return false   // 起点在顶部区域之外：本次手势不参与刷新判定
+        }
+        return super.onInterceptTouchEvent(ev)
+    }
 }
