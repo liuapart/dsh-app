@@ -84,26 +84,29 @@ class MainActivity : AppCompatActivity() {
             "}catch(e){}setInterval(sweep,1200);}" +
             "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',init);}else{init();}})();"
 
-        /** 侧边栏头部右缘的版本角标（__VER__ 由 BuildConfig.VERSION_NAME 注入替换）。
-         *  绝对定位不占布局宽度；SPA 重渲染由 2s 自愈重挂 */
+        /** 版本角标（__VER__ 由 BuildConfig.VERSION_NAME 注入替换）。
+         *  v1.7.1：锚点改为侧边栏底部"设置/Settings"行（⚙ 图标 + 文本定位，
+         *  原 HARNESS wordmark 是 SVG 无文本导致失配）。绝对定位不占宽度，2s 自愈 */
         const val VERSION_JS =
             "(function(){var V='__VER__';" +
             "function f(){try{" +
             "if(document.getElementById('dsh-shell-ver'))return;" +
-            "var cands=document.querySelectorAll('*');" +
-            "for(var i=0;i<cands.length;i++){var el=cands[i];" +
+            "var leafs=document.querySelectorAll('span,div,p,a,button');" +
+            "for(var i=0;i<leafs.length;i++){var el=leafs[i];" +
             "if(el.children.length>0)continue;" +
-            "if((el.textContent||'').trim()!=='HARNESS')continue;" +
+            "var tx=(el.textContent||'').trim();" +
+            "if(tx!=='设置'&&tx!=='Settings')continue;" +
             "var row=el.parentElement,found=null;" +
-            "for(var k=0;k<5&&row;k++){" +
-            "if((row.textContent||'').toLowerCase().indexOf('deepseek')>=0){found=row;break;}" +
+            "for(var k=0;k<6&&row;k++){" +
+            "var r=row.getBoundingClientRect?row.getBoundingClientRect():null;" +
+            "if(row.querySelector&&row.querySelector('svg')&&r&&r.height>=28&&r.height<=80){found=row;break;}" +
             "row=row.parentElement;}" +
             "if(!found)continue;" +
             "var st=getComputedStyle(found);" +
             "if(st.position==='static')found.style.position='relative';" +
             "var b=document.createElement('span');b.id='dsh-shell-ver';b.textContent='v'+V;" +
-            "b.style.cssText='position:absolute;right:14px;top:50%;transform:translateY(-50%);" +
-            "font-size:10px;line-height:1;letter-spacing:.4px;opacity:.75;pointer-events:none;" +
+            "b.style.cssText='position:absolute;right:16px;top:50%;transform:translateY(-50%);" +
+            "font-size:10px;line-height:1;letter-spacing:.4px;opacity:.7;pointer-events:none;" +
             "color:var(--dsw-alias-label-dimmed,#8a8a8e);';" +
             "found.appendChild(b);return;}}catch(e){}}" +
             "if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',f);}else{f();}" +
