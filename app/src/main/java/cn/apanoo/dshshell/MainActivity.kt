@@ -235,7 +235,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyStatusBar(colorHex: String) {
-        val c = try { Color.parseColor(colorHex) } catch (e: Exception) { Color.parseColor(FALLBACK_THEME) }
+        val c = parsePageColor(colorHex) ?: parsePageColor(FALLBACK_THEME)!!
         @Suppress("DEPRECATION")
         window.statusBarColor = c
         @Suppress("DEPRECATION")
@@ -245,6 +245,28 @@ class MainActivity : AppCompatActivity() {
         val ctr = WindowInsetsControllerCompat(window, window.decorView)
         ctr.isAppearanceLightStatusBars = light
         ctr.isAppearanceLightNavigationBars = light
+    }
+
+    /**
+     * 解析页面上报的颜色。ThemePresenter 写入的是 getComputedStyle 的
+     * backgroundColor（rgb/rgba 格式，如 "rgb(246, 248, 250)"），
+     * Color.parseColor 不认识它（v1.2.1 修复：亮色主题状态栏恒黑）。
+     */
+    private fun parsePageColor(value: String): Int? {
+        return try {
+            Color.parseColor(value)
+        } catch (e: Exception) {
+            val m = Regex("rgba?\\(\\s*(\\d+)[,\\s]+(\\d+)[,\\s]+(\\d+)(?:[,\\s]+([\\d.]+))?\\s*\\)").find(value)
+            m?.let {
+                val alpha = (it.groupValues.getOrNull(4)?.toFloatOrNull() ?: 1f).coerceIn(0f, 1f)
+                Color.argb(
+                    (alpha * 255).toInt(),
+                    it.groupValues[1].toInt(),
+                    it.groupValues[2].toInt(),
+                    it.groupValues[3].toInt()
+                )
+            }
+        }
     }
 
     // ---------- 错误兜底 ----------
