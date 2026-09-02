@@ -235,7 +235,7 @@ class MainActivity : AppCompatActivity() {
                 val now = android.os.SystemClock.elapsedRealtime()
                 val reason = if (detail.didCrash()) "渲染进程崩溃" else "渲染进程被系统回收"
                 CrashDiag.log(this@MainActivity,
-                    "rendererGone didCrash=${detail.didCrash()} desc=${detail.description()}")
+                    "rendererGone didCrash=${detail.didCrash()} prio=${detail.rendererPriorityAtExit()}")
                 if (now - lastRenderGoneAt < 10_000) {
                     // 10 秒内再次崩溃：不再自动重建（避免死循环），落错误页让用户手动重试
                     toast("$reason，界面恢复失败，请点下方重试")
