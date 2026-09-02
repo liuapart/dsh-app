@@ -248,7 +248,10 @@ class MainActivity : AppCompatActivity() {
         swipe.topZonePx = (120 * resources.displayMetrics.density).toInt()
         swipe.setOnChildScrollUpCallback { _, _ -> false }   // 不再按滚动位置拦截 = 顶部区域随时可强制刷新
         swipe.setColorSchemeColors(Color.parseColor(FALLBACK_THEME))
-        swipe.setOnRefreshListener { webView.reload() }
+        swipe.setOnRefreshListener {
+            webView.reload()
+            Updater.check(this)   // 强刷时顺带异步检查新版本（v1.9.1，防抖见 Updater）
+        }
     }
 
     private fun setupBackGesture() {

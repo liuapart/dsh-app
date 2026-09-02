@@ -24,8 +24,12 @@ object Updater {
     private const val API = "https://api.github.com/repos/liuapart/dsh-app/releases/latest"
     private var downloadId = -1L
 
-    /** 冷启动调用：静默检查，有新版本才打扰 */
+    /** 在途防抖：冷启动与下拉强刷可能接连触发，避免重复检查/重复弹窗 */
+    private val checking = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** 检查更新：静默进行，有新版本才打扰（冷启动 & 下拉强刷时调用） */
     fun check(activity: MainActivity) {
+        if (!checking.compareAndSet(false, true)) return
         Thread {
             try {
                 val conn = URL(API).openConnection() as HttpURLConnection
@@ -51,6 +55,8 @@ object Updater {
                 }
             } catch (e: Exception) {
                 // 更新检查失败静默忽略，不影响正常使用
+            } finally {
+                checking.set(false)
             }
         }.start()
     }
