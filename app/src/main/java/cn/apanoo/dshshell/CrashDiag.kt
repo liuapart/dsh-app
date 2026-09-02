@@ -73,6 +73,20 @@ object CrashDiag {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_LAST_CRASH).apply()
     }
 
+    /** 前台标志：onResume 置位、onPause 清除。启动时若仍为置位 = 上次在前台时进程被杀（native 崩/被回收）。 */
+    fun markForeground(context: Context) {
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean("fg", true).apply()
+    }
+
+    fun markBackground(context: Context) {
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean("fg", false).apply()
+    }
+
+    fun wasAbnormalExit(context: Context): Boolean =
+        context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean("fg", false)
+
     /** 剪贴板元数据摘要（只读描述，不读图片内容，安全）。 */
     fun clipboardSummary(context: Context): String {
         return try {

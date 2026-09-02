@@ -120,12 +120,19 @@ class MainActivity : AppCompatActivity() {
 
         applyStatusBar(FALLBACK_THEME)           // 首帧即着色，不等页面上报
 
-        // 崩溃诊断（v1.9.3）：捕获 Java 异常 + 事件日志；若上次崩溃已记录则弹窗展示
+        // 崩溃诊断（v1.9.3+）：捕获 Java 异常 + 事件日志 + 异常退出检测
         CrashDiag.init(this)
+        val abnormalExit = CrashDiag.wasAbnormalExit(this)   // 需在本次 onCreate 记录前判断
         CrashDiag.log(this, "onCreate")
         CrashDiag.lastCrash(this)?.let { crash ->
             CrashDiag.consumeCrash(this)
-            showCrashDialog(crash + "\n\n----- 事件记录 -----\n" + CrashDiag.events(this))
+            showCrashDialog("【Java 崩溃堆栈】\n" + crash + "\n\n----- 事件记录 -----\n" + CrashDiag.events(this))
+        } ?: run {
+            // 无 Java 异常但上次在前台时进程被杀（native 崩溃场景）→ 弹事件日志供截图反馈
+            if (abnormalExit) {
+                showCrashDialog("【检测到上次异常退出（native 崩溃/被杀，Java 层无堆栈）】\n" +
+                    "以下是崩溃前的事件记录，请截图反馈：\n\n" + CrashDiag.events(this))
+            }
         }
 
         auth = AuthStore(this)
@@ -472,10 +479,11 @@ class MainActivity : AppCompatActivity() {
         webView.saveState(outState)
     }
 
-    override fun onPause() { CrashDiag.log(this, "onPause"); webView.onPause(); super.onPause() }   // 暂停页面定时器，省电
+    override fun onPause() { CrashDiag.log(this, "onPause"); CrashDiag.markBackground(this); webView.onPause(); super.onPause() }   // 暂停页面定时器，省电
     override fun onResume() {
         super.onResume()
         webView.onResume()
+        CrashDiag.markForeground(this)
         CrashDiag.log(this, "onResume " + CrashDiag.clipboardSummary(this))
     }
 
