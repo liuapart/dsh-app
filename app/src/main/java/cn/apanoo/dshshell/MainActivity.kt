@@ -49,19 +49,6 @@ class MainActivity : AppCompatActivity() {
             "sigs.forEach(function(s){if(s.aborted)c.abort();else s.addEventListener('abort',function(){c.abort();});});" +
             "return c.signal;};}}"
 
-        /**
-         * 粘贴防护（v1.9.2）：dsh 无"粘贴图片/文件"入口，而系统截图/大图进剪贴板后
-         * 长按粘贴会让 WebView 尝试把图片塞进编辑器 → 大图解码/读 content:// URI 触发
-         * 渲染进程崩溃（宿主未处理 onRenderProcessGone 时被系统直接杀掉）。
-         * 这里在捕获阶段拦截带文件的 paste（文本粘贴不受影响：files 为空）。
-         */
-        const val PASTE_GUARD_JS =
-            "(function(){function guard(e){try{" +
-            "var cd=e.clipboardData;if(cd&&cd.files&&cd.files.length>0){e.preventDefault();}" +
-            "}catch(x){}}" +
-            "document.addEventListener('paste',guard,true);" +
-            "window.addEventListener('paste',guard,true);})();"
-
         // Session log 按钮紧凑化已迁入 dsh-web-kit 插件 v2.2.0（Web/壳双端一致，
         // 媒体查询驱动），壳内不再重复注入。
 
@@ -133,6 +120,14 @@ class MainActivity : AppCompatActivity() {
 
         applyStatusBar(FALLBACK_THEME)           // 首帧即着色，不等页面上报
 
+        // 崩溃诊断（v1.9.3）：捕获 Java 异常 + 事件日志；若上次崩溃已记录则弹窗展示
+        CrashDiag.init(this)
+        CrashDiag.log(this, "onCreate")
+        CrashDiag.lastCrash(this)?.let { crash ->
+            CrashDiag.consumeCrash(this)
+            showCrashDialog(crash + "\n\n----- 事件记录 -----\n" + CrashDiag.events(this))
+        }
+
         auth = AuthStore(this)
         swipe = findViewById(R.id.swipe)
         webView = findViewById(R.id.web)
@@ -186,7 +181,7 @@ class MainActivity : AppCompatActivity() {
         }
         // 版本角标：把壳版本号写入注入脚本（编译期常量替换，不经页面接口）
         val versionJs = VERSION_JS.replace("__VER__", BuildConfig.VERSION_NAME)
-        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + PASTE_GUARD_JS + DIALOG_JS + versionJs, originRules)
+        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + DIALOG_JS + versionJs, originRules)
 
         // 页面触发的下载（Session log 等，多为 blob: 链接且需认证态）：
         // DownloadManager 无法携带 WebView 的认证/内存 blob，改用页面上下文 fetch → 桥接落盘
@@ -228,7 +223,7 @@ class MainActivity : AppCompatActivity() {
                 injectThemeObserver()
                 // polyfill 兜底二次注入：即使文档启动注入的 origin 规则未匹配，
                 // 这里也赶在用户点击"发送"之前补上（v1.2.0）
-                view.evaluateJavascript(POLYFILL_JS + PASTE_GUARD_JS, null)
+                view.evaluateJavascript(POLYFILL_JS, null)
             }
 
             /**
@@ -239,6 +234,8 @@ class MainActivity : AppCompatActivity() {
             override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
                 val now = android.os.SystemClock.elapsedRealtime()
                 val reason = if (detail.didCrash()) "渲染进程崩溃" else "渲染进程被系统回收"
+                CrashDiag.log(this@MainActivity,
+                    "rendererGone didCrash=${detail.didCrash()} desc=${detail.description}")
                 if (now - lastRenderGoneAt < 10_000) {
                     // 10 秒内再次崩溃：不再自动重建（避免死循环），落错误页让用户手动重试
                     toast("$reason，界面恢复失败，请点下方重试")
@@ -475,8 +472,37 @@ class MainActivity : AppCompatActivity() {
         webView.saveState(outState)
     }
 
-    override fun onPause() { webView.onPause(); super.onPause() }   // 暂停页面定时器，省电
-    override fun onResume() { super.onResume(); webView.onResume() }
+    override fun onPause() { CrashDiag.log(this, "onPause"); webView.onPause(); super.onPause() }   // 暂停页面定时器，省电
+    override fun onResume() {
+        super.onResume()
+        webView.onResume()
+        CrashDiag.log(this, "onResume " + CrashDiag.clipboardSummary(this))
+    }
+
+    /** 崩溃诊断弹窗：显示 Java 崩溃堆栈 + 事件时间线（用户截图即可反馈） */
+    private fun showCrashDialog(body: String) {
+        try {
+            val tv = android.widget.TextView(this).apply {
+                text = body
+                textSize = 11f
+                typeface = android.graphics.Typeface.MONOSPACE
+                setPadding(24, 16, 24, 16)
+            }
+            val sv = android.widget.ScrollView(this).apply { addView(tv) }
+            AlertDialog.Builder(this)
+                .setTitle("上次崩溃诊断（v${BuildConfig.VERSION_NAME}）")
+                .setView(sv)
+                .setPositiveButton("知道了") { d, _ -> d.dismiss() }
+                .setNegativeButton("复制") { d, _ ->
+                    val cm = getSystemService(android.content.ClipboardManager::class.java)
+                    cm.setPrimaryClip(android.content.ClipData.newPlainText("dsh-crash", body))
+                    toast("诊断内容已复制")
+                    d.dismiss()
+                }
+                .setCancelable(true)
+                .show()
+        } catch (_: Exception) { }
+    }
 }
 
 /**
