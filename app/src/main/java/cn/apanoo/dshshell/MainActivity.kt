@@ -33,6 +33,10 @@ class MainActivity : AppCompatActivity() {
         val BASE_HOST: String = BuildConfig.BASE_HOST
         val BASE_URL: String = BuildConfig.BASE_URL
 
+        /** 渲染进程崩溃时间戳（companion 级：recreate() 重建 Activity 后仍保留，用于防循环重建） */
+        @Volatile
+        var lastRenderGoneAt = 0L
+
         /** 页面上报主题色之前的兜底值（与 PWA manifest 的 theme_color 一致） */
         const val FALLBACK_THEME = "#151517"
 
@@ -44,6 +48,19 @@ class MainActivity : AppCompatActivity() {
             "if(!AbortSignal.any){AbortSignal.any=function(sigs){var c=new AbortController();" +
             "sigs.forEach(function(s){if(s.aborted)c.abort();else s.addEventListener('abort',function(){c.abort();});});" +
             "return c.signal;};}}"
+
+        /**
+         * 粘贴防护（v1.9.2）：dsh 无"粘贴图片/文件"入口，而系统截图/大图进剪贴板后
+         * 长按粘贴会让 WebView 尝试把图片塞进编辑器 → 大图解码/读 content:// URI 触发
+         * 渲染进程崩溃（宿主未处理 onRenderProcessGone 时被系统直接杀掉）。
+         * 这里在捕获阶段拦截带文件的 paste（文本粘贴不受影响：files 为空）。
+         */
+        const val PASTE_GUARD_JS =
+            "(function(){function guard(e){try{" +
+            "var cd=e.clipboardData;if(cd&&cd.files&&cd.files.length>0){e.preventDefault();}" +
+            "}catch(x){}}" +
+            "document.addEventListener('paste',guard,true);" +
+            "window.addEventListener('paste',guard,true);})();"
 
         // Session log 按钮紧凑化已迁入 dsh-web-kit 插件 v2.2.0（Web/壳双端一致，
         // 媒体查询驱动），壳内不再重复注入。
@@ -169,7 +186,7 @@ class MainActivity : AppCompatActivity() {
         }
         // 版本角标：把壳版本号写入注入脚本（编译期常量替换，不经页面接口）
         val versionJs = VERSION_JS.replace("__VER__", BuildConfig.VERSION_NAME)
-        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + DIALOG_JS + versionJs, originRules)
+        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + PASTE_GUARD_JS + DIALOG_JS + versionJs, originRules)
 
         // 页面触发的下载（Session log 等，多为 blob: 链接且需认证态）：
         // DownloadManager 无法携带 WebView 的认证/内存 blob，改用页面上下文 fetch → 桥接落盘
@@ -211,7 +228,28 @@ class MainActivity : AppCompatActivity() {
                 injectThemeObserver()
                 // polyfill 兜底二次注入：即使文档启动注入的 origin 规则未匹配，
                 // 这里也赶在用户点击"发送"之前补上（v1.2.0）
-                view.evaluateJavascript(POLYFILL_JS, null)
+                view.evaluateJavascript(POLYFILL_JS + PASTE_GUARD_JS, null)
+            }
+
+            /**
+             * 渲染进程崩溃接管（v1.9.2）：截图/大图粘贴等场景会让 Chromium 渲染进程
+             * 崩溃或 OOM。若不处理 onRenderProcessGone，系统会直接杀掉宿主 app（表现为
+             * "崩溃退出"）。这里接管后重建界面恢复；返回 true 表示已处理。
+             */
+            override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                val now = android.os.SystemClock.elapsedRealtime()
+                val reason = if (detail.didCrash()) "渲染进程崩溃" else "渲染进程被系统回收"
+                if (now - lastRenderGoneAt < 10_000) {
+                    // 10 秒内再次崩溃：不再自动重建（避免死循环），落错误页让用户手动重试
+                    toast("$reason，界面恢复失败，请点下方重试")
+                    runOnUiThread { showError() }
+                    return true
+                }
+                lastRenderGoneAt = now
+                toast("$reason，正在恢复界面…")
+                // renderer 死亡后同一 WebView 实例不可复用，整体重建最稳
+                runOnUiThread { recreate() }
+                return true
             }
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
