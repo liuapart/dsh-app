@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 路径映射：剪贴板图片转码后的临时 JPEG 存放于 cache/paste/ -->
+<paths>
+    <cache-path name="paste" path="paste/" />
+</paths>

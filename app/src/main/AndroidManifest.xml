@@ -28,5 +28,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- 剪贴板图片转码（v1.9.5）：把任意来源的剪贴板图片重编码为自家可读 JPEG，
+             供 FileProvider 暴露给 WebView，规避 Chromium 读外部图片 URI 的 native 崩溃 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>
