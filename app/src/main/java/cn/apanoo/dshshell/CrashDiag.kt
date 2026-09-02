@@ -80,14 +80,14 @@ object CrashDiag {
             val clip = cm.primaryClip ?: return "clipboard: (空)"
             val d = clip.description
             val sb = StringBuilder("clipboard: ")
-            sb.append("mime=").append(d.mimeType ?: "?")
+            sb.append("mime=").append(if (d.mimeTypeCount > 0) d.getMimeType(0) else "?")
             sb.append(" items=").append(clip.itemCount)
             sb.append(" hasImage=").append(d.hasMimeType("image/*"))
             val first = clip.getItemAt(0)
             sb.append(" uri=").append(first.uri?.scheme ?: "-").append(":")
                 .append(first.uri?.authority?.take(24) ?: "-")
             val text = try {
-                first.coerceToText(context)?.take(30)?.replace('\n', ' ')
+                first.coerceToText(context)?.toString()?.take(30)?.replace('\n', ' ')
             } catch (e: Exception) { "ERR:" + e.javaClass.simpleName }
             sb.append(" text=").append(text ?: "-")
             sb.toString()
