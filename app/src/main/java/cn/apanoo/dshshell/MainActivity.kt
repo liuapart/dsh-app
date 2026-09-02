@@ -120,21 +120,6 @@ class MainActivity : AppCompatActivity() {
 
         applyStatusBar(FALLBACK_THEME)           // 首帧即着色，不等页面上报
 
-        // 崩溃诊断（v1.9.3+）：捕获 Java 异常 + 事件日志 + 异常退出检测
-        CrashDiag.init(this)
-        val abnormalExit = CrashDiag.wasAbnormalExit(this)   // 需在本次 onCreate 记录前判断
-        CrashDiag.log(this, "onCreate")
-        CrashDiag.lastCrash(this)?.let { crash ->
-            CrashDiag.consumeCrash(this)
-            showCrashDialog("【Java 崩溃堆栈】\n" + crash + "\n\n----- 事件记录 -----\n" + CrashDiag.events(this))
-        } ?: run {
-            // 无 Java 异常但上次在前台时进程被杀（native 崩溃场景）→ 弹事件日志供截图反馈
-            if (abnormalExit) {
-                showCrashDialog("【检测到上次异常退出（native 崩溃/被杀，Java 层无堆栈）】\n" +
-                    "以下是崩溃前的事件记录，请截图反馈：\n\n" + CrashDiag.events(this))
-            }
-        }
-
         auth = AuthStore(this)
         swipe = findViewById(R.id.swipe)
         webView = findViewById(R.id.web)
@@ -145,9 +130,11 @@ class MainActivity : AppCompatActivity() {
         configureSwipe()
         setupBackGesture()
 
-        // 应用内更新：注册下载完成接收器 + 启动检查
+        // 应用内更新：注册下载完成接收器；延迟检查，先让 WebView 开始加载
         Updater.registerReceiver(this)
-        Updater.check(this)
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            if (!isFinishing && !isDestroyed) Updater.check(this)
+        }, 5_000L)
 
         if (savedInstanceState != null) webView.restoreState(savedInstanceState)  // 进程回收后原地恢复
         else if (BASE_URL.isNotEmpty()) webView.loadUrl(BASE_URL)
@@ -241,8 +228,6 @@ class MainActivity : AppCompatActivity() {
             override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
                 val now = android.os.SystemClock.elapsedRealtime()
                 val reason = if (detail.didCrash()) "渲染进程崩溃" else "渲染进程被系统回收"
-                CrashDiag.log(this@MainActivity,
-                    "rendererGone didCrash=${detail.didCrash()} prio=${detail.rendererPriorityAtExit()}")
                 if (now - lastRenderGoneAt < 10_000) {
                     // 10 秒内再次崩溃：不再自动重建（避免死循环），落错误页让用户手动重试
                     toast("$reason，界面恢复失败，请点下方重试")
@@ -291,8 +276,8 @@ class MainActivity : AppCompatActivity() {
         swipe.setOnChildScrollUpCallback { _, _ -> false }   // 不再按滚动位置拦截 = 顶部区域随时可强制刷新
         swipe.setColorSchemeColors(Color.parseColor(FALLBACK_THEME))
         swipe.setOnRefreshListener {
+            // 强制刷新只刷新页面，不再访问 GitHub，避免刷新手势干扰页面加载
             webView.reload()
-            Updater.check(this)   // 强刷时顺带异步检查新版本（v1.9.1，防抖见 Updater）
         }
     }
 
@@ -479,38 +464,8 @@ class MainActivity : AppCompatActivity() {
         webView.saveState(outState)
     }
 
-    override fun onPause() { CrashDiag.log(this, "onPause"); CrashDiag.markBackground(this); webView.onPause(); super.onPause() }   // 暂停页面定时器，省电
-    override fun onResume() {
-        super.onResume()
-        webView.onResume()
-        CrashDiag.markForeground(this)
-        CrashDiag.log(this, "onResume " + CrashDiag.clipboardSummary(this))
-    }
-
-    /** 崩溃诊断弹窗：显示 Java 崩溃堆栈 + 事件时间线（用户截图即可反馈） */
-    private fun showCrashDialog(body: String) {
-        try {
-            val tv = android.widget.TextView(this).apply {
-                text = body
-                textSize = 11f
-                typeface = android.graphics.Typeface.MONOSPACE
-                setPadding(24, 16, 24, 16)
-            }
-            val sv = android.widget.ScrollView(this).apply { addView(tv) }
-            AlertDialog.Builder(this)
-                .setTitle("上次崩溃诊断（v${BuildConfig.VERSION_NAME}）")
-                .setView(sv)
-                .setPositiveButton("知道了") { d, _ -> d.dismiss() }
-                .setNegativeButton("复制") { d, _ ->
-                    val cm = getSystemService(android.content.ClipboardManager::class.java)
-                    cm.setPrimaryClip(android.content.ClipData.newPlainText("dsh-crash", body))
-                    toast("诊断内容已复制")
-                    d.dismiss()
-                }
-                .setCancelable(true)
-                .show()
-        } catch (_: Exception) { }
-    }
+    override fun onPause() { webView.onPause(); super.onPause() }   // 暂停页面定时器，省电
+    override fun onResume() { super.onResume(); webView.onResume() }
 }
 
 /**
