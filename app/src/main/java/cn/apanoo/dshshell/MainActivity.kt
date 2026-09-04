@@ -2,6 +2,7 @@ package cn.apanoo.dshshell
 
 import android.annotation.SuppressLint
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Message
@@ -22,6 +23,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewCompat
 
 class MainActivity : AppCompatActivity() {
@@ -39,6 +41,57 @@ class MainActivity : AppCompatActivity() {
 
         /** 页面上报主题色之前的兜底值（与 PWA manifest 的 theme_color 一致） */
         const val FALLBACK_THEME = "#151517"
+
+        /** 亮色主题的兜底背景（与 dsh 亮色表面色一致，首帧/过滚动区域不再黑一块） */
+        const val LIGHT_THEME = "#f6f8fa"
+
+        /**
+         * 壳端主题偏好持久化（v1.10.0）。机制：
+         *  - 偏好存壳端 SharedPreferences（theme_pref: system/light/dark），
+         *    不写服务端 settings.yaml——手机经 Caddy 属远程浏览器，dsh 本就不接受其写入；
+         *  - JS 每次加载经同步桥 getPreference() 现读（下拉刷新 reload 不会拿到旧字面量）；
+         *  - 文档启动即按壳端偏好纠正 html colorScheme 与 body[data-ds-dark-theme]，
+         *    抢在服务端内嵌 boot 脚本（恒 light）与 ThemeRuntime 采纳（远程回退 system）之前；
+         *  - 用户在页面里点主题切换（点击后 3s 内 body 明暗变化即视为用户意图）→
+         *    推导 system/light/dark 上报 setPreference 持久化，传输层无关（fetch/ws 都覆盖）；
+         *  - 其余不匹配（运行时采纳旧值等）一律纠正回壳端偏好；
+         *  - 系统明暗切换（偏好=system）→ matchMedia change → 重算纠正 + 状态栏跟随。
+         */
+        const val SHELL_THEME_JS =
+            "(function(){var PREF='system';" +
+            "try{PREF=DshTheme.getPreference()||'system';}catch(e){}" +
+            "function sysd(){try{return !!matchMedia('(prefers-color-scheme: dark)').matches;}catch(e){return false;}}" +
+            "function want(){return PREF==='dark'?true:PREF==='light'?false:sysd();}" +
+            "var selfWrote=false,lastTap=0;" +
+            "document.addEventListener('pointerdown',function(){lastTap=Date.now();},true);" +
+            "function postBar(){try{DshTheme.post(getComputedStyle(document.body).backgroundColor);}catch(e){}}" +
+            "function apply(){try{" +
+            "var w=want();" +
+            "document.documentElement.style.colorScheme=w?'dark':'light';" +
+            "if(document.body){" +
+            "if(document.body.hasAttribute('data-ds-dark-theme')!==w){selfWrote=true;document.body.toggleAttribute('data-ds-dark-theme',w);postBar();}" +
+            "}" +
+            "}catch(e){}}" +
+            "apply();" +
+            "function hook(){" +
+            "if(!document.body)return;" +
+            "apply();" +
+            "new MutationObserver(function(){try{" +
+            "if(selfWrote){selfWrote=false;return;}" +
+            "var cur=document.body.hasAttribute('data-ds-dark-theme');" +
+            "if(cur===want())return;" +
+            "if(Date.now()-lastTap<3000){" +
+            "var sd=sysd();" +
+            "PREF=cur?(cur===sd?'system':'dark'):'light';" +
+            "try{DshTheme.setPreference(PREF);}catch(e2){}" +
+            "return;}" +
+            "apply();" +
+            "}catch(e){}}).observe(document.body,{attributes:true,attributeFilter:['data-ds-dark-theme']});}" +
+            "if(document.readyState==='loading'){" +
+            "var iv=setInterval(function(){if(document.body){clearInterval(iv);hook();}},4);" +
+            "}else{hook();}" +
+            "try{matchMedia('(prefers-color-scheme: dark)').addEventListener('change',function(){apply();postBar();});}catch(e){}" +
+            "})();"
 
         /** 旧 WebView 的 AbortSignal 新静态方法 polyfill（文档启动前注入） */
         const val POLYFILL_JS =
@@ -110,6 +163,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var swipe: TopZoneSwipeLayout
     private lateinit var errorOverlay: View
 
+    /** 壳端持久化：主题偏好（theme_pref）等 */
+    private val prefs by lazy { getSharedPreferences("dsh_shell", MODE_PRIVATE) }
+
+    /** 壳端偏好解析为"此刻应否暗色"：dark→是，light→否，system→跟系统 uiMode */
+    private fun shellPrefDark(): Boolean = when (prefs.getString("theme_pref", null)) {
+        "dark" -> true
+        "light" -> false
+        else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+    }
+
     /** 断网降级只做一次，避免死循环 */
     private var cacheFallbackUsed = false
 
@@ -118,7 +182,8 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)   // 窗口背景已是主题色（themes.xml），无白闪
 
-        applyStatusBar(FALLBACK_THEME)           // 首帧即着色，不等页面上报
+        applyStatusBar(if (shellPrefDark()) FALLBACK_THEME else LIGHT_THEME)  // 首帧即按壳端偏好着色
+        window.decorView.setBackgroundColor(Color.parseColor(if (shellPrefDark()) FALLBACK_THEME else LIGHT_THEME))
 
         auth = AuthStore(this)
         swipe = findViewById(R.id.swipe)
@@ -145,7 +210,14 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun configureWebView() {
-        webView.setBackgroundColor(Color.parseColor(FALLBACK_THEME))   // 避免暗色主题下加载白闪
+        webView.setBackgroundColor(Color.parseColor(if (shellPrefDark()) FALLBACK_THEME else LIGHT_THEME))  // 加载/过滚动不闪异色
+        // v1.10.0：显式关闭算法加暗。页面自带完整明暗主题，WebView 层再涂一遍只会
+        // 得到反色式的假暗色，且加暗环境会把 prefers-color-scheme 求值为 dark，
+        // 「跟随系统」就永远落在暗色（v1.9.x 用户实测）。targetSdk 34 下此开关
+        // 是 WebView 加暗行为的唯一真源，显式 false 连 OEM 魔改也一并关掉。
+        try {
+            WebSettingsCompat.setAlgorithmicDarkeningAllowed(webView.settings, false)
+        } catch (_: Exception) { }
         // 短暂切后台不杀渲染进程：IMPORTANT 且不在不可见时降级（waivedWhenNotVisible=false）
         webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false)
 
@@ -175,7 +247,7 @@ class MainActivity : AppCompatActivity() {
         }
         // 版本角标：把壳版本号写入注入脚本（编译期常量替换，不经页面接口）
         val versionJs = VERSION_JS.replace("__VER__", BuildConfig.VERSION_NAME)
-        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + DIALOG_JS + versionJs, originRules)
+        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + DIALOG_JS + versionJs + SHELL_THEME_JS, originRules)
 
         // 页面触发的下载（Session log 等，多为 blob: 链接且需认证态）：
         // DownloadManager 无法携带 WebView 的认证/内存 blob，改用页面上下文 fetch → 桥接落盘
@@ -341,6 +413,19 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun post(color: String?) {
             runOnUiThread { if (!color.isNullOrEmpty()) applyStatusBar(color) }
+        }
+
+        /** 壳端主题偏好（JS 文档启动时同步读取；SharedPreferences 读线程安全） */
+        @JavascriptInterface
+        fun getPreference(): String = prefs.getString("theme_pref", null) ?: "system"
+
+        /** 用户在页面里改主题 → JS 上报意图 → 壳端持久化（不写服务端 settings.yaml） */
+        @JavascriptInterface
+        fun setPreference(pref: String?) {
+            when (pref) {
+                "system", "light", "dark" ->
+                    prefs.edit().putString("theme_pref", pref).apply()
+            }
         }
     }
 
