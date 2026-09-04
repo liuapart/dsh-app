@@ -46,29 +46,34 @@ class MainActivity : AppCompatActivity() {
         const val LIGHT_THEME = "#f6f8fa"
 
         /**
-         * 壳端主题偏好持久化（v1.10.0；v1.10.1 系统信号改用 Android 真相）。机制：
+         * 壳端主题偏好持久化（v1.10.0；v1.10.1 系统信号改用 Android 真相；
+         * v1.10.2 动态感知：onConfigurationChanged 推送，切系统主题不再等重启）。机制：
          *  - 偏好存壳端 SharedPreferences（theme_pref: system/light/dark），
          *    不写服务端 settings.yaml——手机经 Caddy 属远程浏览器，dsh 本就不接受其写入；
-         *  - JS 每次加载经同步桥 getPreference() 现读（下拉刷新 reload 不会拿到旧字面量）；
+         *  - JS 每次加载经同步桥 getPreference()/getSystemDark() 现读（reload 不拿旧值）；
          *  - matchMedia shim：WebView 自报的 prefers-color-scheme 会撒谎（v1.10.0 实测
          *    系统亮色时报 dark，boot 脚本/ThemeRuntime/壳 JS 三方全被带偏且互相一致、
-         *    无从纠偏），故以 Kotlin 侧 resources.configuration.uiMode（__DARK__ 字面量）
-         *    劫持 matchMedia——页面里所有 prefers-color-scheme 查询统一按 Android 真相应答；
+         *    无从纠偏），故以 matches 存取器劫持——页面里所有 prefers-color-scheme
+         *    查询统一按 Android 真相（TRUE_DARK）动态应答；
          *  - 文档启动即按壳端偏好纠正 html colorScheme 与 body[data-ds-dark-theme]，
          *    抢在服务端内嵌 boot 脚本（恒 light）与 ThemeRuntime 采纳之前；
          *  - 用户在页面里点主题切换（点击后 3s 内 body 明暗变化即视为用户意图）→
          *    推导 system/light/dark 上报 setPreference 持久化，传输层无关；
          *  - 其余不匹配（运行时采纳旧值等）一律纠正回壳端偏好；
-         *  - 系统明暗切换（偏好=system）→ uiMode 变更 Activity 重建 → 整页带新字面量重载。
+         *  - 系统明暗切换（偏好=system）→ onConfigurationChanged（uiMode 已声明不重建）
+         *    → __dshShellSetDark 推送新真值，页面即时翻转 + 状态栏跟随。
          */
         const val SHELL_THEME_JS =
-            "(function(){var TRUE_DARK=__DARK__;" +
+            "(function(){var TRUE_DARK=false;" +
+            "try{TRUE_DARK=!!DshTheme.getSystemDark();}catch(e){}" +
+            "window.__dshShellSetDark=function(v){TRUE_DARK=!!v;apply();};" +
             "try{var _mm=window.matchMedia?window.matchMedia.bind(window):null;" +
             "window.matchMedia=function(q){" +
             "var r=_mm?_mm(q):{matches:false,addEventListener:function(){},removeEventListener:function(){},addListener:function(){},removeListener:function(){}};" +
             "if(q&&q.indexOf&&q.indexOf('prefers-color-scheme')>=0){" +
             "var wantDark=q.indexOf('dark')>=0;" +
-            "var d={matches:wantDark?TRUE_DARK:!TRUE_DARK};" +
+            "var d={};" +
+            "try{Object.defineProperty(d,'matches',{get:function(){return wantDark?TRUE_DARK:!TRUE_DARK;},enumerable:true});}catch(e2){d.matches=wantDark?TRUE_DARK:!TRUE_DARK;}" +
             "for(var k in r){if(!(k in d)){d[k]=(typeof r[k]==='function')?r[k].bind(r):r[k];}}" +
             "return d;}" +
             "return r;};}catch(e){}" +
@@ -188,6 +193,30 @@ class MainActivity : AppCompatActivity() {
             Configuration.UI_MODE_NIGHT_YES
     }
 
+    /** 上次推送给页面的明暗真值（去重：只在翻转时推，避免每次配置变更都白跑一遍） */
+    private var lastPushedDark: Boolean? = null
+
+    /**
+     * 动态主题感知（v1.10.2）：manifest 已声明 uiMode 不重建 Activity（WebView 不闪
+     * 不重载），系统明暗切换时 Android 把新配置投递到这里。零轮询——只在翻转瞬间
+     * 推一行 JS + 换一次状态栏色；非 system 偏好（light/dark 恒定）时解析值不变，
+     * 去重后直接返回。
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val dark = when (prefs.getString("theme_pref", null)) {
+            "dark" -> true
+            "light" -> false
+            else -> (newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+                Configuration.UI_MODE_NIGHT_YES
+        }
+        if (dark == lastPushedDark) return
+        lastPushedDark = dark
+        applyStatusBar(if (dark) FALLBACK_THEME else LIGHT_THEME)
+        window.decorView.setBackgroundColor(Color.parseColor(if (dark) FALLBACK_THEME else LIGHT_THEME))
+        webView.evaluateJavascript("window.__dshShellSetDark&&window.__dshShellSetDark($dark)", null)
+    }
+
     /** 断网降级只做一次，避免死循环 */
     private var cacheFallbackUsed = false
 
@@ -206,6 +235,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<Button>(R.id.retry).setOnClickListener { retry() }
 
         configureWebView()
+        lastPushedDark = shellPrefDark()   // 页面经桥已拿到初始真值，此后只在翻转时推
         configureSwipe()
         setupBackGesture()
 
@@ -261,10 +291,8 @@ class MainActivity : AppCompatActivity() {
         }
         // 版本角标：把壳版本号写入注入脚本（编译期常量替换，不经页面接口）
         val versionJs = VERSION_JS.replace("__VER__", BuildConfig.VERSION_NAME)
-        // 主题：把 Android 真实 uiMode 解析结果烧进注入脚本（v1.10.1）——
-        // WebView 自报的 prefers-color-scheme 会撒谎，页面侧统一以壳端真值为准
-        val themeJs = SHELL_THEME_JS.replace("__DARK__", if (shellPrefDark()) "true" else "false")
-        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + DIALOG_JS + versionJs + themeJs, originRules)
+        // 主题：系统信号经 getSystemDark() 同步桥现读（v1.10.2 起支持运行时推送）
+        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + DIALOG_JS + versionJs + SHELL_THEME_JS, originRules)
 
         // 页面触发的下载（Session log 等，多为 blob: 链接且需认证态）：
         // DownloadManager 无法携带 WebView 的认证/内存 blob，改用页面上下文 fetch → 桥接落盘
@@ -435,6 +463,10 @@ class MainActivity : AppCompatActivity() {
         /** 壳端主题偏好（JS 文档启动时同步读取；SharedPreferences 读线程安全） */
         @JavascriptInterface
         fun getPreference(): String = prefs.getString("theme_pref", null) ?: "system"
+
+        /** Android 真实 uiMode 解析的当前应否暗色（v1.10.2：页面 matchMedia shim 的真值源） */
+        @JavascriptInterface
+        fun getSystemDark(): Boolean = shellPrefDark()
 
         /** 用户在页面里改主题 → JS 上报意图 → 壳端持久化（不写服务端 settings.yaml） */
         @JavascriptInterface
