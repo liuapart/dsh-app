@@ -114,6 +114,13 @@ class MainActivity : AppCompatActivity() {
 
         /** 旧 WebView 的 AbortSignal 新静态方法 polyfill（文档启动前注入） */
         const val POLYFILL_JS =
+            // v1.11.1：ES2025 Iterator 全局（Chrome 122+）缺失兜底。dsh 新版
+            // documentpreview 插件引用 Iterator.prototype（仅检测 typeof 并自补
+            // join），旧 WebView 直接 ReferenceError 导致所有插件加载失败。
+            // 这里提供最小存根让插件的自检通过；原生存在时绝不覆盖。
+            "if(typeof Iterator==='undefined'){" +
+            "var __It=function(){};__It.prototype[Symbol.toStringTag]='Iterator';" +
+            "window.Iterator=__It;}" +
             "if(window.AbortSignal){" +
             "if(!AbortSignal.timeout){AbortSignal.timeout=function(ms){var c=new AbortController();" +
             "setTimeout(function(){c.abort();},ms);return c.signal;};}" +
