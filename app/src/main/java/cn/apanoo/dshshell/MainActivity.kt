@@ -457,6 +457,19 @@ class MainActivity : AppCompatActivity() {
         }
 
         webView.webChromeClient = object : WebChromeClient() {
+            // v1.11.3 诊断：页面 JS 错误直接 toast 浮出（旧 WebView 缺 API 的报错
+            // 此前只进 console 不可见，导致只能逐个盲猜 polyfill）。ERROR 级弹提示，
+            // 其余进 logcat。
+            override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
+                android.util.Log.d("DshShellJS", "${message.messageLevel()} ${message.message()} @${message.sourceId()}:${message.lineNumber()}")
+                if (message.messageLevel() >= android.webkit.ConsoleMessage.MessageLevel.ERROR) {
+                    val text = message.message() ?: return super.onConsoleMessage(message)
+                    val short = if (text.length > 120) text.substring(0, 120) + "…" else text
+                    toast("页面JS错误：$short")
+                }
+                return super.onConsoleMessage(message)
+            }
+
             // target=_blank：借临时 WebView 捕获目标 URL，交系统浏览器（不把壳带离 dsh）
             override fun onCreateWindow(view: WebView, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message): Boolean {
                 toast("外链：转交系统浏览器")   // v1.3.2 诊断③：区分下载 vs 新窗口路径
