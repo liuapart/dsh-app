@@ -246,8 +246,79 @@ class MainActivity : AppCompatActivity() {
         }, 5_000L)
 
         if (savedInstanceState != null) webView.restoreState(savedInstanceState)  // 进程回收后原地恢复
-        else if (BASE_URL.isNotEmpty()) webView.loadUrl(BASE_URL)
-        else showError()   // 未配置 BASE_URL（构建时未注入）
+        else loadEntryUrl()   // v1.11.0：启动前先换 dsh 进程 token（新版 0.1.5+ 认证）
+    }
+
+    // ---------- 启动加载：token 换取（v1.11.0） ----------
+
+    /**
+     * dsh 新版（0.1.5+）根路径启用进程 token 认证，直接开 BASE_URL 会 401 空白。
+     * 流程：用已存 Basic 凭证经 Caddy 的 /shell-token 端点拉当前 token（服务端读
+     * dsh 启动日志最新一条，Docker/launchd 重启后自动更新）→ 加载 /?token=xxx，
+     * 服务端 303 重定向并 Set-Cookie（30 天签名 cookie，WebView 自动保管，跨 dsh
+     * 重启有效）→ 之后 API 全走 cookie，一切照旧。每次启动都换新，无过期概念。
+     * 拉取失败（无凭证/网络异常）退回直接加载 BASE_URL，由既有链路兜底。
+     */
+    private fun loadEntryUrl() {
+        if (BASE_URL.isEmpty()) { showError(); return }   // 未配置 BASE_URL（构建时未注入）
+        val saved = auth.load()
+        if (saved != null) {
+            loadWithToken(saved)
+        } else {
+            // 首次启动无凭证：复用登录对话框采集一次（此后 SharedPreferences 常驻）
+            val v = layoutInflater.inflate(R.layout.dialog_auth, null)
+            val userEt = v.findViewById<EditText>(R.id.auth_user)
+            val passEt = v.findViewById<EditText>(R.id.auth_pass)
+            AlertDialog.Builder(this)
+                .setTitle("登录 dsh")
+                .setView(v)
+                .setPositiveButton("登录") { _, _ ->
+                    val u = userEt.text.toString()
+                    val p = passEt.text.toString()
+                    auth.save(u, p)
+                    loadWithToken(u to p)
+                }
+                .setNegativeButton("跳过") { _, _ -> webView.loadUrl(BASE_URL) }
+                .setCancelable(true)
+                .setOnCancelListener { webView.loadUrl(BASE_URL) }
+                .show()
+        }
+    }
+
+    /** 后台线程拉 token → 主线程带 token 加载；失败退回裸加载 */
+    private fun loadWithToken(creds: Pair<String, String>) {
+        kotlin.concurrent.thread {
+            val token = fetchShellToken(creds)
+            runOnUiThread {
+                val base = BASE_URL.trimEnd('/')
+                if (token != null) webView.loadUrl("$base/?token=$token")
+                else webView.loadUrl(base)
+            }
+        }
+    }
+
+    /** GET {BASE_URL}/shell-token（Caddy basic_auth 保护），返回当前 dsh 进程 token */
+    private fun fetchShellToken(creds: Pair<String, String>): String? {
+        val base = BASE_URL.trimEnd('/')
+        return try {
+            val conn = java.net.URL(base + "/shell-token").openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 5_000
+            conn.readTimeout = 5_000
+            val basic = android.util.Base64.encodeToString(
+                "${creds.first}:${creds.second}".toByteArray(Charsets.UTF_8),
+                android.util.Base64.NO_WRAP
+            )
+            conn.setRequestProperty("Authorization", "Basic $basic")
+            try {
+                val body: String
+                if (conn.responseCode != 200) return null
+                body = conn.inputStream.bufferedReader().use { it.readText() }
+                org.json.JSONObject(body).optString("token")
+                    .takeIf { it.isNotEmpty() && Regex("[A-Za-z0-9_-]+").matches(it) }
+            } finally {
+                conn.disconnect()
+            }
+        } catch (e: Exception) { null }
     }
 
     // ---------- WebView 配置（性能相关都集中在这里） ----------
