@@ -376,8 +376,14 @@ class MainActivity : AppCompatActivity() {
         }
         // 版本角标：把壳版本号写入注入脚本（编译期常量替换，不经页面接口）
         val versionJs = VERSION_JS.replace("__VER__", BuildConfig.VERSION_NAME)
-        // 主题：系统信号经 getSystemDark() 同步桥现读（v1.10.2 起支持运行时推送）
-        WebViewCompat.addDocumentStartJavaScript(webView, POLYFILL_JS + DIALOG_JS + versionJs + SHELL_THEME_JS, originRules)
+        // v1.11.4：内置 core-js 全量 polyfill（assets，~250KB），系统化补齐旧 WebView 的
+        // JS 语言基线（Promise.withResolvers / Iterator helpers / Array.fromAsync 等），
+        // 替代逐个手写补丁；core-js 自带特性检测，新 WebView 上全部 no-op。
+        // addDocumentStartJavaScript 按数组顺序执行：core-js 必须最先，壳级补丁随后兜底。
+        val coreJs = try { assets.open("core-js-bundle.min.js").bufferedReader().use { it.readText() } } catch (_: Exception) { "" }
+        val startScripts = (if (coreJs.isNotEmpty()) coreJs + "\n;\n" else "") +
+            POLYFILL_JS + DIALOG_JS + versionJs + SHELL_THEME_JS
+        WebViewCompat.addDocumentStartJavaScript(webView, startScripts, originRules)
 
         // 页面触发的下载（Session log 等，多为 blob: 链接且需认证态）：
         // DownloadManager 无法携带 WebView 的认证/内存 blob，改用页面上下文 fetch → 桥接落盘
