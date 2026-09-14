@@ -121,6 +121,13 @@ class MainActivity : AppCompatActivity() {
             "if(typeof Iterator==='undefined'){" +
             "var __It=function(){};__It.prototype[Symbol.toStringTag]='Iterator';" +
             "window.Iterator=__It;}" +
+            // v1.11.2：Promise.withResolvers（Chrome 119+）缺失兜底——dsh 0.1.5 有 29 个
+            // 客户端模块以它为基线 API（含 workspace-files 的 file 资源 provider），
+            // 缺失会让模块加载即抛 TypeError，表现为"文件资源服务不可用"。
+            "if(!Promise.withResolvers){" +
+            "Promise.withResolvers=function(){var o={};" +
+            "o.promise=new Promise(function(rs,rj){o.resolve=rs;o.reject=rj;});" +
+            "return o;};}" +
             "if(window.AbortSignal){" +
             "if(!AbortSignal.timeout){AbortSignal.timeout=function(ms){var c=new AbortController();" +
             "setTimeout(function(){c.abort();},ms);return c.signal;};}" +
